@@ -2,11 +2,9 @@
 # -*- coding: utf-8 -*-
 
 import argparse
-import github
 from github.Branch import Branch
 from github.Repository import Repository
-from bincrafters_repos import GITHUB_BINCRAFTERS_NAME
-from bincrafters_repos.util import Configuration, input_ask_question_yn, input_ask_question_options
+from conan_repo_actions.util import Configuration, input_ask_question_yn, input_ask_question_options
 from packaging.version import Version, InvalidVersion
 import re
 import typing
@@ -16,7 +14,7 @@ def main():
     parser = argparse.ArgumentParser(description='Check and fix default branches')
     parser.add_argument('repo_names', nargs=argparse.ZERO_OR_MORE,
                         help='names of repo to check (skip if check all)')
-    parser.add_argument('--owner_login', type=str, default=GITHUB_BINCRAFTERS_NAME,
+    parser.add_argument('--owner_login', type=str, required=True,
                         help='owner of the repo to clone')
     parser.add_argument('--fix', action='store_true',
                         help='fix the default branch')
@@ -24,9 +22,8 @@ def main():
     args = parser.parse_args()
 
     c = Configuration()
-    l, p = c.github_login
+    g = c.get_github()
 
-    g = github.Github(l, p)
     loggedin_user = g.get_user()
     owner_user = g.get_user(args.owner_login)
 
@@ -196,7 +193,11 @@ class ConanRepo(object):
 
     def get_branches_by_version(self, version: Version) -> typing.Iterable[ConanRepoBranch]:
         for branch in self._versionmap.get(version, []):
-            yield branch
+            if branch.channel == 'stable':
+                yield branch
+        for branch in self._versionmap.get(version, []):
+            if branch.channel != 'stable':
+                yield branch
 
     def get_branches_by_channel(self, channel: typing.Optional[str]) -> typing.Iterable[ConanRepoBranch]:
         for _, branches in self._versionmap.items():
@@ -257,12 +258,6 @@ def _channel_version_from_branch(branch: str) -> typing.Optional[typing.Tuple[st
     b, v_str = b_v
     v = _version_from_string(v_str)
     return b, v
-    # try:
-    #     [b_str, v_str] = branch.split('/', 1)
-    # except ValueError:
-    #     return None
-    # v = _version_from_string(v_str)
-    # return b_str, v
 
 
 def _version_from_string(v_str: str) -> typing.Optional[Version]:

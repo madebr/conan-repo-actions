@@ -4,16 +4,15 @@
 import argparse
 import github
 import github.Repository
-from bincrafters_repos import GITHUB_TAG, GITHUB_BINCRAFTERS_NAME
-from bincrafters_repos.util import Configuration, GithubUser, input_ask_question_yn
+from conan_repo_actions import FORK_TAG
+from conan_repo_actions.util import Configuration, GithubUser, input_ask_question_yn
 import sys
 import typing
-from distutils.util import strtobool
 
 
 def main():
     parser = argparse.ArgumentParser(description='Remove forked repositories')
-    parser.add_argument('--owner_login', type=str, default=GITHUB_BINCRAFTERS_NAME,
+    parser.add_argument('--owner_login', type=str, required=True,
                         help='Login of the owner of the source of the forked repos')
     parser.add_argument('--no-tag', dest='tag', action='store_false', help='Do not require this tool\'s tag')
     parser.add_argument('--delete', dest='delete', action='store_true', help='Delete the forked repositories')
@@ -22,9 +21,8 @@ def main():
     args = parser.parse_args()
 
     c = Configuration()
-    l, p = c.github_login
+    g = c.get_github()
 
-    g = github.Github(l, p)
     from_user = g.get_user(args.owner_login)
     to_user = g.get_user()
 
@@ -35,7 +33,7 @@ def main():
     repos = forked_repos(from_user, to_user)
     for from_repo, to_repo in repos:
         if args.tag:
-            if GITHUB_TAG not in to_repo.get_topics():
+            if FORK_TAG not in to_repo.get_topics():
                 continue
         print('- {} -> {} ({})'.format(from_repo.full_name, to_repo.full_name, to_repo.html_url))
         if args.delete:

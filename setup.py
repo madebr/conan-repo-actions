@@ -16,7 +16,7 @@ with open(os.path.join(here, 'README.md'), encoding='utf-8') as f:
 
 def get_requires(filename):
     requirements = []
-    with open(os.path.join(here, 'bincrafters_repos', filename)) as req_file:
+    with open(os.path.join(here, 'conan_repo_actions', filename)) as req_file:
         for line in req_file.read().splitlines():
             if not line.strip().startswith("#"):
                 requirements.append(line)
@@ -26,27 +26,27 @@ def get_requires(filename):
 def load_metadata():
     """Load project metadata from __init__.py file"""
     filename = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                            "bincrafters_repos", "__init__.py"))
+                                            "conan_repo_actions", "__init__.py"))
     Data = namedtuple("Data", ("version", "name", "email", "url", "license", ))
 
     with open(filename, "rt") as version_file:
         conan_init = version_file.read()
-        version = re.search('__version__ = "([0-9a-zA-Z.-]+)"', conan_init).group(1)
-        m_name_mail = re.search('__author__ = "([\\w ]+) <([\\w@\\.]+)>"', conan_init)
+        version = re.search('__version__ = \'([0-9a-zA-Z.-]+)\'', conan_init).group(1)
+        m_name_mail = re.search('__author__ = \'([\\w ]+) <([\\w@\\.]+)>\'', conan_init)
         name = m_name_mail.group(1)
         mail = m_name_mail.group(2)
-        url = re.search('__url__ = "([\\w\\/\\.\\:\\-]+)"', conan_init).group(1)
-        license = re.search('__license__ = "([\\w\\.]+)"', conan_init).group(1)
+        url = re.search('__url__ = \'([\\w\\/\\.\\:\\-]+)\'', conan_init).group(1)
+        license = re.search('__license__ = \'([\\w\\.]+)\'', conan_init).group(1)
         return Data(version, name, mail, url, license)
 
 
 metadata = load_metadata()
 
 setup(
-    name='bincrafters-repos',
+    name='conan-repo-actions',
     version=metadata.version,
     long_description=long_description,
-    description='Scripts to handle bincrafters repos',
+    description='Scripts to handle conan repos',
     url=metadata.url,
     author=metadata.name,
     author_email=metadata.email,
@@ -89,14 +89,13 @@ setup(
     },
 \
     package_data={
-        'bincrafters-repos': ['*.txt'],
+        'conan_repo_actions': ['*.txt'],
     },
     # If there are data files included in your packages that need to be
     # installed, specify them here.  If using Python 2.6 or less, then these
     # have to be included in MANIFEST.in as well.
     # package_data={
     #     '': ['*.md'],
-    #     'bincrafters_repos': ['*.txt'],
     # },
     include_package_data=True,
 
@@ -109,9 +108,12 @@ setup(
     # To provide executable scripts, use entry points in preference to the
     # "scripts" keyword. Entry points provide cross-platform support and allow
     # pip to create the appropriate form of executable for the target platform.
-    # entry_points={
-    #     'console_scripts': [
-    #         'bincrafters-repos=bincrafters_repos.__main__:main',
-    #     ],
-    # },
+    entry_points={
+        'console_scripts': [
+            'conan-repo-fork_create=conan_repo_actions.fork_create:main',
+            'conan-repo-fork_cleanup=conan_repo_actions.fork_cleanup:main',
+            'conan-repo-default_branch=conan_repo_actions.default_branch:main',
+            'conan-repo-apply_conventions=conan_repo_actions.auto_apply_conventions:main',
+        ],
+    },
 )
