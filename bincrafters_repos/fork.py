@@ -4,15 +4,13 @@
 import argparse
 import github
 import github.AuthenticatedUser
-import git
 from bincrafters_repos import GITHUB_BINCRAFTERS_NAME, GITHUB_TAG
 from bincrafters_repos.util import Configuration, GithubUser
 import sys
-import typing
 
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description='Create a fork')
     parser.add_argument('--owner_login', type=str, default=GITHUB_BINCRAFTERS_NAME, help='owner of the repo to clone')
     parser.add_argument('repo_name', type=str, help='name of repo to clone')
 

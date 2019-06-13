@@ -5,13 +5,16 @@ import argparse
 import datetime
 import git
 import github
+import github.AuthenticatedUser
+import github.Repository
 from bincrafters_conventions.bincrafters_conventions import Command as BincraftersConventionsCommand
 from conan_readme_generator.main import run as conan_readme_generator_run
 from bincrafters_repos import GITHUB_BINCRAFTERS_NAME, GITHUB_TAG
-from bincrafters_repos.util import Configuration, chargv, chdir
+from bincrafters_repos.util import Configuration, chargv, chdir, GithubUser
 from bincrafters_repos.fork import create_fork
 from pathlib import Path
 import shutil
+import typing
 
 
 def main():
@@ -30,13 +33,23 @@ def main():
     from_user = g.get_user(args.owner_login)
     to_user = g.get_user()
 
-    from_repo, to_repo = create_fork(args.repo_name, from_user, to_user)
+    push_data = apply_scripts(args.repo_name, from_user, to_user, c.git_wd, args.keep_clone)
+    if push_data is not None:
+        to_repo, remote_branch_name = push_data
+        print('Pushed changes to branch "{}" of "{}"'.format(remote_branch_name, to_repo.full_name))
+    else:
+        print('Scripts did not change anything')
+
+
+def apply_scripts(repo_name: str, from_user: GithubUser, to_user: github.AuthenticatedUser.AuthenticatedUser,
+                  git_wd: Path, keep_clone: bool=False) -> typing.Optional[typing.Tuple['github.Repository.Repository', str]]:
+    from_repo, to_repo = create_fork(repo_name, from_user, to_user)
 
     remote_origin = 'origin'
     remote_user = 'user'
 
-    git_repo_wd = c.git_wd / args.repo_name
-    clone_repo(args.repo_name, args.keep_clone, c.git_wd, from_repo, to_repo, remote_origin, remote_user)
+    git_repo_wd = git_wd / repo_name
+    clone_repo(repo_name, keep_clone, git_wd, from_repo, to_repo, remote_origin, remote_user)
 
     repo = git.Repo(git_repo_wd)
 
@@ -49,12 +62,14 @@ def main():
             repo.index.commit(message=message)
             updated = True
 
+    print('Running bincrafters-conventions...')
     with chdir(git_repo_wd):
         cmd = BincraftersConventionsCommand()
         cmd.run(['--local', ])
 
     commit_changes(repo, 'Run bincrafters-conventions\n\ncommit by {}'.format(GITHUB_TAG))
 
+    print('Running conan-readme-generator...')
     with chdir(git_repo_wd):
         with chargv(['']):
             conan_readme_generator_run()
@@ -72,7 +87,9 @@ def main():
     if updated:
         remote_branch_name = remote_branch_from_local(repo.active_branch.name)
         repo.remote(remote_user).push('{}:{}'.format(repo.active_branch.name, remote_branch_name))
-        print('Pushed changes to branch "{}" of "{}"'.format(remote_branch_name, to_repo.full_name))
+        return to_repo, remote_branch_name
+    else:
+        return None
 
 
 def clone_repo(repo_name, keep_clone, wd, from_repo, to_repo, remote_origin, remote_user):

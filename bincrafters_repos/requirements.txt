@@ -1,4 +1,4 @@
 gitpython>=2.1.11
 pygithub>=1.43.7
 bincrafters-conventions>=0.7.6
-packageing>=19.0
+packaging>=19.0

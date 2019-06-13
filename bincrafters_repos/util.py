@@ -11,6 +11,51 @@ import yaml
 GithubUser = typing.Union['github.AuthenticatedUser.AuthenticatedUser', 'github.NamedUser.NamedUser', ]
 
 
+def input_ask_question_yn(question: str, default: typing.Optional[bool]=None) -> typing.Optional[bool]:
+    y = 'y'
+    n = 'n'
+
+    if default in (True, ):
+        y = 'Y'
+    elif default in (False, ):
+        n = 'N'
+
+    msg = '{} [{}/{}] '.format(question, y, n)
+    answer = input(msg)
+    if answer == '' and default is not None:
+        return default
+    return _strtobool(answer)
+
+
+def input_ask_question_options(question: str, options: typing.List[str],
+                               default: typing.Any=None) -> typing.Union[int, typing.Any]:
+    max_value = len(options) - 1
+    if max_value < 0:
+        raise ValueError('Option list cannot be empty')
+    print(question)
+    for option_i, option in enumerate(options):
+        print('[{: 4}] {}'.format(option_i, option))
+    msg = '{} [0-{}] '.format(question, max_value)
+    answer = input(msg)
+    if answer == '':
+        return default
+    if not answer.isdigit():
+        raise ValueError('answer must be an integer')
+    option = int(answer)
+    if option < 0 or option > max_value:
+        raise ValueError('answer out of range')
+    return option
+
+
+def _strtobool(answer: str) -> bool:
+    answer = answer.lower()
+    if answer in ('y', '1', 'true', ):
+        return True
+    elif answer in ('n', '0', 'false', ):
+        return False
+    raise ValueError('Not a boolean value: {}'.format(answer), answer)
+
+
 @contextlib.contextmanager
 def chdir(newdir: Path):
     """ Change directory using locked scope
@@ -29,7 +74,7 @@ def chdir(newdir: Path):
 def chargv(new_argv: typing.List[str]):
     """ Change argv using locked scope
 
-    :param newdir: Temporary folder to move
+    :param new_argv: Temporary arguments to use
     """
     old_argv = sys.argv
     sys.argv = new_argv
