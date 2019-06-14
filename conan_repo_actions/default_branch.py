@@ -74,21 +74,17 @@ def default_branch_check(github_repo: Repository, fix=False):
 
             assert max(repo.versions) == repo.most_recent_version()
 
+            most_recent_stable_version_overall = repo.version_most_recent_filter(lambda b: not b.version.is_prerelease)
+
             most_recent_version_testing = repo.most_recent_version_by_channel('testing')
-            most_recent_version_stable = repo.most_recent_version_by_channel('stable')
             most_recent_version_overall = repo.most_recent_version()
 
-            if repo.default_branch.version != most_recent_version_overall:
-                messages.append('default branch is not on most recent version')
+            if repo.default_branch.version != most_recent_stable_version_overall:
+                messages.append('default branch is not on most recent (non-prerelease) version')
+                change_default_branch = True
 
-            if most_recent_version_stable != most_recent_version_overall:
-                messages.append('most recent version has no stable channel branch')
             if most_recent_version_testing != most_recent_version_overall:
                 messages.append('most recent version has no testing channel branch')
-
-            if repo.default_branch.version != most_recent_version_overall:
-                messages.append('version of default branch out of date')
-                change_default_branch = True
 
     if change_default_branch:
         messages.append('suggestions={}'.format(list(b.name for b in default_branch_suggestions)))
@@ -218,8 +214,14 @@ class ConanRepo(object):
         except IndexError:
             return None
 
-    def most_recent_version_filter(self, fn: typing.Callable[[Version], bool]) -> typing.Optional[Version]:
-        return next(filter(fn, self.versions), default=None)
+    def branches_filter(self, fn: typing.Callable[[ConanRepoBranch], bool]) -> typing.Iterator[ConanRepoBranch]:
+        return filter(fn, self.branches)
+
+    def version_most_recent_filter(self, fn: typing.Callable[[ConanRepoBranch], bool]) -> typing.Optional[Version]:
+        try:
+            return next(self.branches_filter(fn)).version
+        except StopIteration:
+            return None
 
     @classmethod
     def from_repo(cls, repo: Repository) -> 'ConanRepo':
