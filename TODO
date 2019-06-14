@@ -1,0 +1,2 @@
+- check testing/X.Y and stable/X.Y on parity (and create pr if not)
+- refactor every action into a class having: description, check, and do_action methods

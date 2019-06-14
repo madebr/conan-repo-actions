@@ -7,5 +7,6 @@ __license__ = 'MIT'
 __url__ = 'https://github.com/madebr/conan-repo-actions'
 
 NAME = __name__
+WEBSITE = __url__
 FORK_PREFIX = 'conan-repo-actions'
 FORK_TAG = 'conan-repo-actions-tag'

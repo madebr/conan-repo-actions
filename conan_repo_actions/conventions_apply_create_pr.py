@@ -3,7 +3,7 @@
 
 import argparse
 import github
-from conan_repo_actions import NAME
+from conan_repo_actions import NAME, WEBSITE
 from conan_repo_actions.conventions_apply import apply_scripts_and_push, argparse_add_which_branch_option,\
     argparse_calculate_branch, generate_default_channel_suffix
 from conan_repo_actions.util import Configuration
@@ -77,7 +77,11 @@ def main():
 
 `bincrafters-conventions` and `conan-readme-generator` were executed on the branch {from_repo_branch}
 
-###### auto-generated using {name}'''.format(from_repo_branch=data.push_data.from_branch, name=NAME)
+###### auto-generated using [{script_name}]({script_url})'''.format(
+            from_repo_branch=data.push_data.from_branch,
+            script_name=NAME,
+            script_url=WEBSITE,
+        )
         pull = data.pull_repo.create_pull(title=pull_title, head=pull_head, base=pull_base, body=pull_body)
         data.pull_number = pull.number
 
@@ -103,9 +107,10 @@ def main():
 
 {checkable_pull_info}
 
-###### auto-generated using {name}'''.format(
+###### auto-generated using [{script_name}]({script_url})'''.format(
             checkable_pull_info='\n'.join(checkable_pull_info),
-            name=NAME,
+            script_name=NAME,
+            script_url=WEBSITE,
         )
 
         issue = issue_repo.create_issue(
