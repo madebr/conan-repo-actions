@@ -110,10 +110,11 @@ setup(
     # pip to create the appropriate form of executable for the target platform.
     entry_points={
         'console_scripts': [
-            'conan-repo-fork_create=conan_repo_actions.fork_create:main',
-            'conan-repo-fork_cleanup=conan_repo_actions.fork_cleanup:main',
-            'conan-repo-default_branch=conan_repo_actions.default_branch:main',
-            'conan-repo-apply_conventions=conan_repo_actions.auto_apply_conventions:main',
+            'conan-repo-actions-fork_create=conan_repo_actions.fork_create:main',
+            'conan-repo-actions-fork_cleanup=conan_repo_actions.fork_cleanup:main',
+            'conan-repo-actions-default_branch=conan_repo_actions.default_branch:main',
+            'conan-repo-actions-conventions_apply=conan_repo_actions.conventions_apply:main',
+            'conan-repo-actions-conventions_apply_create_pr=conan_repo_actions.conventions_apply_create_pr:main',
         ],
     },
 )
