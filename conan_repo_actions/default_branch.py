@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+from collections import OrderedDict
 from github.Branch import Branch
 from github.Repository import Repository
 from conan_repo_actions.util import Configuration, input_ask_question_yn, input_ask_question_options
@@ -36,10 +37,10 @@ def main():
         repos_to_check = owner_user.get_repos()
 
     for repo_to_check in repos_to_check:
-        handle_default_branch(repo_to_check, fix=args.fix)
+        default_branch_check(repo_to_check, fix=args.fix)
 
 
-def handle_default_branch(github_repo: Repository, fix=False):
+def default_branch_check(github_repo: Repository, fix=False):
     repo = ConanRepo.from_repo(github_repo)
 
     messages = []
@@ -49,57 +50,67 @@ def handle_default_branch(github_repo: Repository, fix=False):
     if repo.contains_unknown_branches():
         messages.append('non-conan branches found ({})'.format(list(b.name for b in repo.unknown_branches)))
 
-    default_branch_suggestions = None
+    change_default_branch = False
+    default_branch_suggestions = list(sorted(repo.branches, key=_BranchRepoSuggestionKey)) + list(repo.unknown_branches)
 
     if not repo.default_branch.good():
         messages.append('default branch has not the channel/branch format'.format())
     else:
-        if repo.default_branch.channel != 'stable':
-            messages.append('default channel is not stable'.format())
+        if repo.default_branch.channel != 'testing':
+            messages.append('default channel is not testing'.format())
+            change_default_branch = True
 
         if repo.default_branch.version is None:
             messages.append('cannot decode default branch version')
         else:
-            if repo.default_branch.channel == 'stable':
-                suggested_channel = 'stable'
-            else:
-                suggested_channel = None
+            for c in ('stable', 'testing', ):
+                try:
+                    next(b for b in repo.get_branches_by_version(repo.default_branch.version) if b.channel == c)
+                except StopIteration:
+                    messages.append('default branch has no "{}" channel equivalent'.format(c))
 
             if repo.default_branch.version.is_prerelease:
                 messages.append('version of default branch is a prerelease')
 
-            most_recent_version_suggested = repo.most_recent_version_by_channel(suggested_channel)
+            assert max(repo.versions) == repo.most_recent_version()
+
+            most_recent_version_testing = repo.most_recent_version_by_channel('testing')
             most_recent_version_stable = repo.most_recent_version_by_channel('stable')
-            most_recent_version_overall = repo.most_recent_version_by_channel()
+            most_recent_version_overall = repo.most_recent_version()
+
+            if repo.default_branch.version != most_recent_version_overall:
+                messages.append('default branch is not on most recent version')
 
             if most_recent_version_stable != most_recent_version_overall:
-                messages.append('most recent version has no stable channel')
-            if most_recent_version_suggested and most_recent_version_suggested != repo.default_branch.version:
+                messages.append('most recent version has no stable channel branch')
+            if most_recent_version_testing != most_recent_version_overall:
+                messages.append('most recent version has no testing channel branch')
+
+            if repo.default_branch.version != most_recent_version_overall:
                 messages.append('version of default branch out of date')
+                change_default_branch = True
 
-                suggested_branches = list(repo.get_branches_by_channel(suggested_channel))
-                other_branches = list(sorted((set(repo.branches).difference(set(suggested_branches))),
-                                             key=lambda b: b.version, reverse=True))
-                unknown_branches = list(repo.unknown_branches)
-
-                default_branch_suggestions = suggested_branches + other_branches + unknown_branches
-                messages.append('suggestions={}'.format(list(b.name for b in default_branch_suggestions)))
+    if change_default_branch:
+        messages.append('suggestions={}'.format(list(b.name for b in default_branch_suggestions)))
 
     if messages:
         print('{} (default="{}"): {}'.format(github_repo.full_name, repo.default_branch.name, '; '.join(messages)))
 
     if fix:
         if default_branch_suggestions:
-            options = ['- do nothing -', ] + list(b.name for b in default_branch_suggestions)
-            answer = input_ask_question_options('Change default branch to?', options)
-            if answer is None or answer == 0:
-                print('Do nothing')
+            if len(default_branch_suggestions) == 1:
+                print('Only one branch available -> do nothing')
             else:
+                options = ['- do nothing -', ] + list(b.name for b in default_branch_suggestions)
+                answer = input_ask_question_options('Change default branch to?', options, default=0)
+                apply_fixes = answer != 0
                 new_default_branch_name = options[answer]
-                confirmation_question = 'Change the default branch of "{}" from "{}" to "{}"?'.format(
-                    github_repo.full_name, repo.default_branch.name, new_default_branch_name)
-                change_default_branch = input_ask_question_yn(confirmation_question, default=False)
-                if change_default_branch:
+                if apply_fixes:
+                    new_default_branch_name = options[answer]
+                    confirmation_question = 'Change the default branch of "{}" from "{}" to "{}"?'.format(
+                        github_repo.full_name, repo.default_branch.name, new_default_branch_name)
+                    apply_fixes = input_ask_question_yn(confirmation_question, default=False)
+                if apply_fixes:
                     print('Changing default branch to {} ...'.format(new_default_branch_name))
                     github_repo.edit(default_branch=new_default_branch_name)
                     print('... done'.format(new_default_branch_name))
@@ -153,7 +164,7 @@ class ConanRepoBranch(object):
 class ConanRepo(object):
     def __init__(self, versionmap: typing.Mapping[Version, typing.List[ConanRepoBranch]],
                  unknown: typing.Iterable[ConanRepoBranch], default_branch: ConanRepoBranch):
-        self._versionmap = dict(sorted(versionmap.items(), key=lambda v_b: v_b[0], reverse=True))
+        self._versionmap = OrderedDict(sorted(versionmap.items(), key=lambda v_b: v_b[0], reverse=True))
         self._unknown_branches = list(unknown)
         self._default_branch = default_branch
 
@@ -169,17 +180,7 @@ class ConanRepo(object):
     def branches(self) -> typing.Iterable[ConanRepoBranch]:
         for _, branches in self._versionmap.items():
             for branch in branches:
-                if branch.channel == 'stable':
-                    yield branch
-            for branch in branches:
-                if branch.channel != 'stable':
-                    yield branch
-
-    @property
-    def non_prerelease_versions(self) -> typing.Iterable[Version]:
-        for version in self._versionmap.keys():
-            if not version.is_prerelease:
-                yield version
+                yield branch
 
     @property
     def unknown_branches(self) -> typing.Iterable[ConanRepoBranch]:
@@ -193,11 +194,7 @@ class ConanRepo(object):
 
     def get_branches_by_version(self, version: Version) -> typing.Iterable[ConanRepoBranch]:
         for branch in self._versionmap.get(version, []):
-            if branch.channel == 'stable':
-                yield branch
-        for branch in self._versionmap.get(version, []):
-            if branch.channel != 'stable':
-                yield branch
+            yield branch
 
     def get_branches_by_channel(self, channel: typing.Optional[str]) -> typing.Iterable[ConanRepoBranch]:
         for _, branches in self._versionmap.items():
@@ -208,18 +205,21 @@ class ConanRepo(object):
                     if channel == branch.channel:
                         yield branch
 
-    def most_recent_version_by_channel(self, channel: typing.Optional[str]=None) -> typing.Optional[Version]:
-        if channel is not None:
-            branches = list(self.get_branches_by_channel(channel))
-            try:
-                return branches[0].version
-            except IndexError:
-                return None
-        else:
-            try:
-                return list(self._versionmap.keys())[0]
-            except IndexError:
-                return None
+    def most_recent_version_by_channel(self, channel: str) -> typing.Optional[Version]:
+        branches = list(self.get_branches_by_channel(channel))
+        try:
+            return branches[0].version
+        except IndexError:
+            return None
+
+    def most_recent_version(self) -> typing.Optional[Version]:
+        try:
+            return list(self._versionmap.keys())[0]
+        except IndexError:
+            return None
+
+    def most_recent_version_filter(self, fn: typing.Callable[[Version], bool]) -> typing.Optional[Version]:
+        return next(filter(fn, self.versions), default=None)
 
     @classmethod
     def from_repo(cls, repo: Repository) -> 'ConanRepo':
@@ -241,6 +241,54 @@ class ConanRepo(object):
                 result.setdefault(version, [])
                 result[version].append(ConanRepoBranch(branch.name))
         return cls(versionmap=result, unknown=unknown, default_branch=ConanRepoBranch(default))
+
+
+class _BranchRepoSuggestionKey:
+    @classmethod
+    def _cmp_version_channel(cls, first: ConanRepoBranch, second: ConanRepoBranch) -> int:
+        if first.version == second.version:
+            return cls._cmp_channel(first, second)
+        if first.version > second.version:
+            return -1
+        else:
+            return 1
+
+    @classmethod
+    def _cmp_channel(cls, first: ConanRepoBranch, second: ConanRepoBranch) -> int:
+        if first.channel == second.channel:
+            return 0
+        if first.channel == 'testing':
+            return -1
+        if second.channel == 'testing':
+            return 1
+        if first.channel == 'stable':
+            return -1
+        if second.channel == 'stable':
+            return 0
+        if first.channel > second.channel:
+            return -1
+        return 1
+
+    def __init__(self, obj):
+        self.obj = obj
+
+    def __lt__(self, other):
+        return self._cmp_version_channel(self.obj, other.obj) < 0
+
+    def __gt__(self, other):
+        return self._cmp_version_channel(self.obj, other.obj) > 0
+
+    def __eq__(self, other):
+        return self._cmp_version_channel(self.obj, other.obj) == 0
+
+    def __le__(self, other):
+        return self._cmp_version_channel(self.obj, other.obj) <= 0
+
+    def __ge__(self, other):
+        return self._cmp_version_channel(self.obj, other.obj) >= 0
+
+    def __ne__(self, other):
+        return self._cmp_version_channel(self.obj, other.obj) != 0
 
 
 def _channel_version_str_from_branch(branch: str) -> typing.Optional[typing.Tuple[str, str]]:

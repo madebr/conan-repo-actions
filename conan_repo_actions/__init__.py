@@ -6,6 +6,6 @@ __author__ = 'Anonymous Maarten <anonymous.maarten@gmail.com>'
 __license__ = 'MIT'
 __url__ = 'https://github.com/madebr/conan-repo-actions'
 
-NAME = 'conan-repo-actions'
+NAME = __name__
 FORK_PREFIX = 'conan-repo-actions'
 FORK_TAG = 'conan-repo-actions-tag'

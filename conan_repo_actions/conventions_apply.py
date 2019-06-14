@@ -55,16 +55,19 @@ class WhichBranch(enum.Enum):
     DEFAULT = 0
     LATEST = 1
     LATEST_STABLE = 2
+    LATEST_TESTING = 3
 
 
 def argparse_add_which_branch_option(parser):
     branch_group = parser.add_mutually_exclusive_group()
     branch_group.add_argument('--default_branch', dest='branch_dest', action='store_const',
-                              const=WhichBranch.DEFAULT, help='use the default branch')
+                              const=WhichBranch.DEFAULT, help='use default branch')
     branch_group.add_argument('--latest', dest='branch_dest', action='store_const',
-                              const=WhichBranch.LATEST, help='use the branch with the highest version')
+                              const=WhichBranch.LATEST, help='use branch with the highest version')
     branch_group.add_argument('--latest_stable', dest='branch_dest', action='store_const',
-                              const=WhichBranch.LATEST_STABLE, help='use the branch with the highest stable version')
+                              const=WhichBranch.LATEST_STABLE, help='use branch of stable channel of highest version')
+    branch_group.add_argument('--latest_testing', dest='branch_dest', action='store_const',
+                              const=WhichBranch.LATEST_TESTING, help='use branch of testing channel of highest version')
     branch_group.add_argument('--branch', dest='branch_dest', help='use the most recent branch')
     parser.set_defaults(branch_dest=WhichBranch.DEFAULT)
 
@@ -82,6 +85,12 @@ def argparse_calculate_branch(repo_name: str, branch_dest: typing.Union[WhichBra
     elif branch_dest == WhichBranch.LATEST_STABLE:
         conan_repo = ConanRepo.from_repo(from_repo)
         most_recent_version = conan_repo.most_recent_version_by_channel('stable')
+        if most_recent_version is None:
+            return
+        return next(conan_repo.get_branches_by_version(most_recent_version)).name
+    elif branch_dest == WhichBranch.LATEST_TESTING:
+        conan_repo = ConanRepo.from_repo(from_repo)
+        most_recent_version = conan_repo.most_recent_version_by_channel('testing')
         if most_recent_version is None:
             return
         return next(conan_repo.get_branches_by_version(most_recent_version)).name
