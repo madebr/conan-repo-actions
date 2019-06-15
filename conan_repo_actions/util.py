@@ -3,9 +3,13 @@
 from . import __name__
 import contextlib
 import github
+import itertools
 import os
 from pathlib import Path
+import shutil
 import sys
+import subprocess
+import tempfile
 import typing
 import yaml
 
@@ -55,6 +59,32 @@ def _strtobool(answer: str) -> bool:
     elif answer in ('n', '0', 'false', ):
         return False
     raise ValueError('Not a boolean value: {}'.format(answer), answer)
+
+
+EDITOR_ALTERNATIVES = ['vim', 'vi', 'nano', 'emacs', ]
+
+
+def _editor_search() -> typing.Optional[str]:
+    editor = os.environ.get('EDITOR', None)
+    for editor in itertools.chain((editor, ), EDITOR_ALTERNATIVES):
+        path = shutil.which(editor)
+        if path is not None:
+            return path
+    return None
+
+
+def editor_interactive(initial_message: typing.Optional[str]=None) -> str:
+    editor = _editor_search()
+    if editor is None:
+        raise RuntimeError('Cannot find text editor')
+
+    initial_message = initial_message or ''
+    with tempfile.NamedTemporaryFile(suffix='.tmp') as f:
+        f.write(initial_message.encode())
+        f.flush()
+        subprocess.check_call([editor, f.name])
+        f.seek(0)
+        return f.read().decode()
 
 
 @contextlib.contextmanager

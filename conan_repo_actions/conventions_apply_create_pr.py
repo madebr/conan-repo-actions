@@ -19,6 +19,7 @@ def main():
                         help='suffix to append to the channel')
     parser.add_argument('--issue_repo', type=str, help='repo where to post the summary to')
     parser.add_argument('--push_to_owner', action='store_true', help='repo where to post the summary to')
+    parser.add_argument('--message', '-m', type=str, default=None, help='extra text message')
     argparse_add_which_branch_option(parser)
     parser.add_argument('repo_names', type=str, nargs=argparse.ONE_OR_MORE, help='names  of the repos')
 
@@ -73,12 +74,16 @@ def main():
         pull_title = 'Applied conventions on {}'.format(data.push_data.from_branch)
         pull_head = '{}:{}'.format(data.push_data.to_repo.owner.login, data.push_data.to_branch)
         pull_base = data.push_data.from_branch
+        pull_extra_message = '\n\n{}'.format(args.message) if args.message else ''
+
         pull_body = '''Hello,
 
 `bincrafters-conventions` and `conan-readme-generator` were executed on the branch {from_repo_branch}
+{message}
 
 ###### auto-generated using [{script_name}]({script_url})'''.format(
             from_repo_branch=data.push_data.from_branch,
+            message=pull_extra_message,
             script_name=NAME,
             script_url=WEBSITE,
         )
