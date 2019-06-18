@@ -4,8 +4,9 @@ import typing
 
 
 class ActionBase(object):
-    def __init__(self):
+    def __init__(self, interactive: bool=False):
         self.__check = False
+        self.interactive = interactive
 
     def check(self) -> None:
         self.run_check()
@@ -33,3 +34,7 @@ class ActionBase(object):
 
     def run_sub_actions(self) -> typing.Iterable['ActionBase']:
         raise RuntimeError('This method must be overridden by subclasses')
+
+
+class ActionInterrupted(Exception):
+    pass
