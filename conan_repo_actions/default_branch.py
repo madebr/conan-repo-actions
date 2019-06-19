@@ -5,7 +5,8 @@ import argparse
 from collections import OrderedDict
 from github.Branch import Branch
 from github.Repository import Repository
-from conan_repo_actions.util import Configuration, input_ask_question_yn, input_ask_question_options
+from conan_repo_actions.base import ActionInterrupted, ActionBase
+from conan_repo_actions.util import Configuration, GithubUser, input_ask_question_yn, input_ask_question_options
 from packaging.version import Version, InvalidVersion
 import re
 import typing
@@ -21,97 +22,144 @@ def main():
                         help='fix the default branch')
 
     args = parser.parse_args()
+    if not args.repo_names:
+        args.repo_names = None
 
     c = Configuration()
     g = c.get_github()
 
-    loggedin_user = g.get_user()
-    owner_user = g.get_user(args.owner_login)
+    user_owner = g.get_user(args.owner_login)
 
-    if args.fix and loggedin_user.id != owner_user.id:
-        print('Cannot fix default branches when logged-in user is not the owner of the repos to check')
-
-    if args.repo_names:
-        repos_to_check = (owner_user.get_repo(repo_name) for repo_name in args.repo_names)
-    else:
-        repos_to_check = owner_user.get_repos()
-
-    for repo_to_check in repos_to_check:
-        default_branch_check(repo_to_check, fix=args.fix)
+    default_branch_check(user=user_owner, fix=args.fix, repos=args.repo_names)
 
 
-def default_branch_check(github_repo: Repository, fix=False):
-    repo = ConanRepo.from_repo(github_repo)
+def default_branch_check(user: typing.Optional[GithubUser],
+           repos: typing.Optional[typing.List[typing.Union[str, Repository]]]=None,
+           fix: bool=False):
 
-    messages = []
-    if not repo.contains_conan_branches():
-        messages.append('no versions found')
+    action_default = DefaultBranchAction(user=user,
+                                         repos=repos,
+                                         fix=fix)
+    action_default.check()
+    print(action_default.description())
+    action_default.run_action()
 
-    if repo.contains_unknown_branches():
-        messages.append('non-conan branches found ({})'.format(list(b.name for b in repo.unknown_branches)))
 
-    change_default_branch = False
-    default_branch_suggestions = list(sorted(repo.branches, key=_BranchRepoSuggestionKey)) + list(repo.unknown_branches)
+class DefaultBranchAction(ActionBase):
+    def __init__(self, user: typing.Optional[GithubUser],
+                 repos: typing.Optional[typing.List[typing.Union[str, Repository]]]=None,
+                 fix: bool=False):
+        super().__init__()
+        self._user = user
+        self._repos = repos
 
-    if not repo.default_branch.good():
-        messages.append('default branch has not the channel/branch format'.format())
-    else:
-        if repo.default_branch.channel != 'testing':
-            messages.append('default channel is not testing'.format())
-            change_default_branch = True
+        self._fix = fix
 
-        if repo.default_branch.version is None:
-            messages.append('cannot decode default branch version')
+    def run_check(self):
+        repos = []
+        if self._repos is not None:
+            for repo in self._repos:
+                if isinstance(repo, str):
+                    repos.append(self._user.get_repo(repo))
+                else:
+                    repos.append(repo)
         else:
-            for c in ('stable', 'testing', ):
-                try:
-                    next(b for b in repo.get_branches_by_version(repo.default_branch.version) if b.channel == c)
-                except StopIteration:
-                    messages.append('default branch has no "{}" channel equivalent'.format(c))
+            if self._user is None:
+                raise ActionInterrupted('Need user')
+            repos = list(self._user.get_repos())
 
-            if repo.default_branch.version.is_prerelease:
-                messages.append('version of default branch is a prerelease')
+        if self._fix:
+            for repo in repos:
+                if not repo.has_in_collaborators(self._user.login):
+                    raise ActionInterrupted('Cannot fix "{}": {} is not a collaborator'.format(repo.full_name, self._user.login))
+        self._repos = repos
 
-            assert max(repo.versions) == repo.most_recent_version()
+    def run_action(self):
+        for repo in self._repos:
+            self._repo_check_default_branch(repo)
 
-            most_recent_stable_version_overall = repo.version_most_recent_filter(lambda b: not b.version.is_prerelease)
+    def run_description(self):
+        return 'Check default branch of {nb} repos'.format(
+            nb=len(self._repos) if self._repos is not None else 'unknown',
+        )
 
-            most_recent_version_testing = repo.most_recent_version_by_channel('testing')
-            most_recent_version_overall = repo.most_recent_version()
+    def run_sub_actions(self) -> typing.Iterable[ActionBase]:
+        return ()
 
-            if repo.default_branch.version != most_recent_stable_version_overall:
-                messages.append('default branch is not on most recent (non-prerelease) version')
+    def _repo_check_default_branch(self, github_repo: Repository):
+        repo = ConanRepo.from_repo(github_repo)
+
+        messages = []
+        if not repo.contains_conan_branches():
+            messages.append('no versions found')
+
+        if repo.contains_unknown_branches():
+            messages.append('non-conan branches found ({})'.format(list(b.name for b in repo.unknown_branches)))
+
+        change_default_branch = False
+        default_branch_suggestions = list(sorted(repo.branches, key=_BranchRepoSuggestionKey)) + list(
+            repo.unknown_branches)
+
+        if not repo.default_branch.good():
+            messages.append('default branch has not the channel/branch format'.format())
+        else:
+            if repo.default_branch.channel != 'testing':
+                messages.append('default channel is not testing'.format())
                 change_default_branch = True
 
-            if most_recent_version_testing != most_recent_version_overall:
-                messages.append('most recent version has no testing channel branch')
-
-    if change_default_branch:
-        messages.append('suggestions={}'.format(list(b.name for b in default_branch_suggestions)))
-
-    if messages:
-        print('{} (default="{}"): {}'.format(github_repo.full_name, repo.default_branch.name, '; '.join(messages)))
-
-    if fix:
-        if default_branch_suggestions:
-            if len(default_branch_suggestions) == 1:
-                print('Only one branch available -> do nothing')
+            if repo.default_branch.version is None:
+                messages.append('cannot decode default branch version')
             else:
-                options = ['- do nothing -', ] + list(b.name for b in default_branch_suggestions)
-                answer = input_ask_question_options('Change default branch to?', options, default=0)
-                apply_fixes = answer != 0
-                new_default_branch_name = options[answer]
-                if apply_fixes:
-                    new_default_branch_name = options[answer]
-                    confirmation_question = 'Change the default branch of "{}" from "{}" to "{}"?'.format(
-                        github_repo.full_name, repo.default_branch.name, new_default_branch_name)
-                    apply_fixes = input_ask_question_yn(confirmation_question, default=False)
-                if apply_fixes:
-                    print('Changing default branch to {} ...'.format(new_default_branch_name))
-                    github_repo.edit(default_branch=new_default_branch_name)
-                    print('... done'.format(new_default_branch_name))
+                for c in ('stable', 'testing',):
+                    try:
+                        next(b for b in repo.get_branches_by_version(repo.default_branch.version) if b.channel == c)
+                    except StopIteration:
+                        messages.append('default branch has no "{}" channel equivalent'.format(c))
+
+                if repo.default_branch.version.is_prerelease:
+                    messages.append('version of default branch is a prerelease')
+
+                assert max(repo.versions) == repo.most_recent_version()
+
+                most_recent_stable_version_overall = repo.version_most_recent_filter(
+                    lambda b: not b.version.is_prerelease)
+
+                most_recent_version_testing = repo.most_recent_version_by_channel('testing')
+                most_recent_version_overall = repo.most_recent_version()
+
+                if repo.default_branch.version != most_recent_stable_version_overall:
+                    messages.append('default branch is not on most recent (non-prerelease) version')
+                    change_default_branch = True
+
+                if most_recent_version_testing != most_recent_version_overall:
+                    messages.append('most recent version has no testing channel branch')
+
+        if change_default_branch:
+            messages.append('suggestions={}'.format(list(b.name for b in default_branch_suggestions)))
+
+        if messages:
+            print('{} (default="{}"): {}'.format(github_repo.full_name, repo.default_branch.name, '; '.join(messages)))
+
+        if self._fix:
+            if default_branch_suggestions:
+                if len(default_branch_suggestions) == 1:
+                    print('Only one branch available -> do nothing')
                 else:
-                    print('Do nothing')
+                    options = ['- do nothing -', ] + list(b.name for b in default_branch_suggestions)
+                    answer = input_ask_question_options('Change default branch to?', options, default=0)
+                    apply_fixes = answer != 0
+                    new_default_branch_name = options[answer]
+                    if apply_fixes:
+                        new_default_branch_name = options[answer]
+                        confirmation_question = 'Change the default branch of "{}" from "{}" to "{}"?'.format(
+                            github_repo.full_name, repo.default_branch.name, new_default_branch_name)
+                        apply_fixes = input_ask_question_yn(confirmation_question, default=False)
+                    if apply_fixes:
+                        print('Changing default branch to {} ...'.format(new_default_branch_name))
+                        github_repo.edit(default_branch=new_default_branch_name)
+                        print('... done'.format(new_default_branch_name))
+                    else:
+                        print('Do nothing')
 
 
 class ConanRepoBranch(object):

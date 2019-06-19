@@ -103,6 +103,9 @@ class ForkCleanupAction(ActionBase):
             'delete' if self._delete else 'list',
         )
 
+    def run_sub_actions(self) -> typing.Iterable[ActionBase]:
+        return ()
+
 
 if __name__ == '__main__':
     main()

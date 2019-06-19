@@ -61,7 +61,12 @@ def _strtobool(answer: str) -> bool:
     raise ValueError('Not a boolean value: {}'.format(answer), answer)
 
 
-EDITOR_ALTERNATIVES = ['vim', 'vi', 'nano', 'emacs', ]
+EDITOR_ALTERNATIVES = [
+    'vim',
+    'vi',
+    'nano',
+    'emacs',
+]
 
 
 def _editor_search() -> typing.Optional[str]:
