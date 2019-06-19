@@ -71,7 +71,9 @@ def fork_create2(g: Github, repo_from_name: str, user_from_name: str, user_to_na
     else:
         user_to = g.get_user(user_to_name)
 
-    fork_action = ForkCreateAction(user_from=user_from, user_to=user_to, repo_from_name=repo_from_name,
+    repo_from = user_from.get_repo(repo_from_name)
+
+    fork_action = ForkCreateAction(repo_from=repo_from, user_to=user_to,
                                    fork_tag=fork_tag, fork_prefix=fork_prefix, interactive=interactive)
     fork_action.check()
 
@@ -83,17 +85,14 @@ def fork_create2(g: Github, repo_from_name: str, user_from_name: str, user_to_na
 
 
 class ForkCreateAction(ActionBase):
-    def __init__(self, user_from: GithubUser, user_to: AuthenticatedUser, repo_from_name: str,
+    def __init__(self, repo_from: Repository, user_to: AuthenticatedUser,
                  repo_to_name: typing.Optional[str]=None,
                  fork_tag: typing.Optional[str]=FORK_TAG, fork_prefix: typing.Optional[str]=FORK_PREFIX,
                  interactive: bool=False):
         super().__init__(interactive=interactive)
-        self._user_from = user_from
+        self._repo_from = repo_from
+
         self._user_to = user_to
-
-        self._repo_from_name = repo_from_name
-        self._repo_from = None
-
         self._repo_to_name = repo_to_name
         self._repo_to = None
 
@@ -101,10 +100,6 @@ class ForkCreateAction(ActionBase):
         self._fork_prefix = fork_prefix
 
     def run_check(self):
-        try:
-            self._repo_from = self._user_from.get_repo(self._repo_from_name)
-        except GithubException:
-            raise Exception('Repo "{}" does not exist'.format(self._repo_from_name))
 
         for repo_fork in self._repo_from.get_forks():
             if repo_fork.owner.id == self._user_to.id:
@@ -116,9 +111,9 @@ class ForkCreateAction(ActionBase):
 
         if not self._repo_to_name:
             if self._fork_prefix is None:
-                self._repo_to_name = self._repo_from_name
+                self._repo_to_name = self._repo_from.name
             else:
-                self._repo_to_name = '{}-{}'.format(self._fork_prefix, self._repo_from_name)
+                self._repo_to_name = '{}-{}'.format(self._fork_prefix, self._repo_from.name)
 
     def run_action(self):
         if self._repo_to is not None:
@@ -133,15 +128,11 @@ class ForkCreateAction(ActionBase):
             self._repo_to.replace_topics([self._fork_tag] + topics_from)
 
     def run_description(self) -> str:
-        return 'Fork "{}/{}" to "{}/{}". (name of fork may be different)'.format(
-            self._user_from.login,
-            self._repo_from_name,
-            self._user_to.login,
-            self._repo_to_name,
+        return 'Fork "{repo_from}" to "{user_to_login}/{repo_to_name}". (name of fork may be different)'.format(
+            repo_from=self._repo_from.full_name,
+            user_to_login=self._user_to.login,
+            repo_to_name=self._repo_to_name,
         )
-
-    def run_sub_actions(self) -> typing.Iterable[ActionBase]:
-        return ()
 
     @property
     def repo_from(self) -> typing.Optional[Repository]:

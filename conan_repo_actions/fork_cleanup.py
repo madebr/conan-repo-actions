@@ -97,14 +97,11 @@ class ForkCleanupAction(ActionBase):
 
     def run_description(self) -> str:
         return 'Handling forks with parent user "{}" and child user "{}". {} repos found. Action:"{}"'.format(
-            self._user_from,
-            self._user,
+            self._user_from.login,
+            self._user.login,
             'NA' if self._forks is None else len(self._forks),
             'delete' if self._delete else 'list',
         )
-
-    def run_sub_actions(self) -> typing.Iterable[ActionBase]:
-        return ()
 
 
 if __name__ == '__main__':

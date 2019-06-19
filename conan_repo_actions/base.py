@@ -20,9 +20,6 @@ class ActionBase(object):
     def description(self) -> str:
         return self.run_description()
 
-    def sub_actions(self) -> typing.Iterable['ActionBase']:
-        return self.run_sub_actions()
-
     def run_check(self):
         raise RuntimeError('This method must be overridden by subclasses')
 
@@ -30,9 +27,6 @@ class ActionBase(object):
         raise RuntimeError('This method must be overridden by subclasses')
 
     def run_description(self) -> str:
-        raise RuntimeError('This method must be overridden by subclasses')
-
-    def run_sub_actions(self) -> typing.Iterable['ActionBase']:
         raise RuntimeError('This method must be overridden by subclasses')
 
 

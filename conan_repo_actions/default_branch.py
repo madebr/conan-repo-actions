@@ -3,6 +3,7 @@
 
 import argparse
 from collections import OrderedDict
+import enum
 from github.Branch import Branch
 from github.Repository import Repository
 from conan_repo_actions.base import ActionInterrupted, ActionBase
@@ -124,14 +125,14 @@ class DefaultBranchAction(ActionBase):
                 most_recent_stable_version_overall = repo.version_most_recent_filter(
                     lambda b: not b.version.is_prerelease)
 
-                most_recent_version_testing = repo.most_recent_version_by_channel('testing')
-                most_recent_version_overall = repo.most_recent_version()
+                most_recent_repo_testing = repo.most_recent_repo_by_channel('testing')
+                most_recent_repo_overall = repo.most_recent_repo()
 
                 if repo.default_branch.version != most_recent_stable_version_overall:
                     messages.append('default branch is not on most recent (non-prerelease) version')
                     change_default_branch = True
 
-                if most_recent_version_testing != most_recent_version_overall:
+                if most_recent_repo_testing.version != most_recent_repo_overall.version:
                     messages.append('most recent version has no testing channel branch')
 
         if change_default_branch:
@@ -205,6 +206,13 @@ class ConanRepoBranch(object):
         return self._name == other._name
 
 
+class WhichBranch(enum.Enum):
+    DEFAULT = 0
+    LATEST = 1
+    LATEST_STABLE = 2
+    LATEST_TESTING = 3
+
+
 class ConanRepo(object):
     def __init__(self, versionmap: typing.Mapping[Version, typing.List[ConanRepoBranch]],
                  unknown: typing.Iterable[ConanRepoBranch], default_branch: ConanRepoBranch):
@@ -249,10 +257,10 @@ class ConanRepo(object):
                     if channel == branch.channel:
                         yield branch
 
-    def most_recent_version_by_channel(self, channel: str) -> typing.Optional[Version]:
+    def most_recent_branch_by_channel(self, channel: str) -> typing.Optional[ConanRepoBranch]:
         branches = list(self.get_branches_by_channel(channel))
         try:
-            return branches[0].version
+            return branches[0]
         except IndexError:
             return None
 
@@ -291,6 +299,27 @@ class ConanRepo(object):
                 result.setdefault(version, [])
                 result[version].append(ConanRepoBranch(branch.name))
         return cls(versionmap=result, unknown=unknown, default_branch=ConanRepoBranch(default))
+
+    def select_branch(self, branch: WhichBranch) -> typing.Optional[ConanRepoBranch]:
+        if branch == WhichBranch.DEFAULT:
+            return self.default_branch
+        elif branch == WhichBranch.LATEST:
+            most_recent_version = self.most_recent_version()
+            for branch in self._versionmap[most_recent_version]:
+                if branch.channel == 'testing':
+                    return branch
+            for branch in self._versionmap[most_recent_version]:
+                if branch.channel == 'stable':
+                    return branch
+            for branch in self._versionmap[most_recent_version]:
+                return branch
+            return None
+        elif branch == WhichBranch.LATEST_STABLE:
+            return self.most_recent_branch_by_channel('stable')
+        elif branch == WhichBranch.LATEST_TESTING:
+            return self.most_recent_branch_by_channel('testing')
+        else:
+            raise ValueError(branch)
 
 
 class _BranchRepoSuggestionKey:
