@@ -19,6 +19,8 @@ def main():
                         help='owner of the repo to clone')
     parser.add_argument('--fix', action='store_true',
                         help='fix the default branch')
+    parser.add_argument('--noconfirm', action='store_true',
+                        help='do not display confirmation dialog')
 
     args = parser.parse_args()
 
@@ -37,10 +39,13 @@ def main():
         repos_to_check = owner_user.get_repos()
 
     for repo_to_check in repos_to_check:
-        default_branch_check(repo_to_check, fix=args.fix)
+        if repo_to_check.archived:
+            print("skip archived repo %s" % repo_to_check.name)
+            continue
+        default_branch_check(repo_to_check, fix=args.fix, noconfirm=args.noconfirm)
 
 
-def default_branch_check(github_repo: Repository, fix=False):
+def default_branch_check(github_repo: Repository, fix=False, noconfirm=False):
     repo = ConanRepo.from_repo(github_repo)
 
     messages = []
@@ -93,19 +98,23 @@ def default_branch_check(github_repo: Repository, fix=False):
         print('{} (default="{}"): {}'.format(github_repo.full_name, repo.default_branch.name, '; '.join(messages)))
 
     if fix:
-        if default_branch_suggestions:
+        if default_branch_suggestions and change_default_branch:
             if len(default_branch_suggestions) == 1:
                 print('Only one branch available -> do nothing')
             else:
                 options = ['- do nothing -', ] + list(b.name for b in default_branch_suggestions)
-                answer = input_ask_question_options('Change default branch to?', options, default=0)
+                answer = input_ask_question_options('Change default of "{}" branch to?'.
+                                                    format(github_repo.full_name), options, default=0)
                 apply_fixes = answer != 0
                 new_default_branch_name = options[answer]
                 if apply_fixes:
                     new_default_branch_name = options[answer]
                     confirmation_question = 'Change the default branch of "{}" from "{}" to "{}"?'.format(
                         github_repo.full_name, repo.default_branch.name, new_default_branch_name)
-                    apply_fixes = input_ask_question_yn(confirmation_question, default=False)
+                    if noconfirm:
+                        apply_fixes = True
+                    else:
+                        apply_fixes = input_ask_question_yn(confirmation_question, default=False)
                 if apply_fixes:
                     print('Changing default branch to {} ...'.format(new_default_branch_name))
                     github_repo.edit(default_branch=new_default_branch_name)
