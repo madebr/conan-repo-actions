@@ -98,7 +98,7 @@ def default_branch_check(github_repo: Repository, fix=False, noconfirm=False):
         print('{} (default="{}"): {}'.format(github_repo.full_name, repo.default_branch.name, '; '.join(messages)))
 
     if fix:
-        if default_branch_suggestions:
+        if default_branch_suggestions and change_default_branch:
             if len(default_branch_suggestions) == 1:
                 print('Only one branch available -> do nothing')
             else:
