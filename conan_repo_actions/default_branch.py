@@ -19,6 +19,8 @@ def main():
                         help='owner of the repo to clone')
     parser.add_argument('--fix', action='store_true',
                         help='fix the default branch')
+    parser.add_argument('--noconfirm', action='store_true',
+                        help='do not display confirmation dialog')
 
     args = parser.parse_args()
 
@@ -40,10 +42,10 @@ def main():
         if repo_to_check.archived:
             print("skip archived repo %s" % repo_to_check.name)
             continue
-        default_branch_check(repo_to_check, fix=args.fix)
+        default_branch_check(repo_to_check, fix=args.fix, noconfirm=args.noconfirm)
 
 
-def default_branch_check(github_repo: Repository, fix=False):
+def default_branch_check(github_repo: Repository, fix=False, noconfirm=False):
     repo = ConanRepo.from_repo(github_repo)
 
     messages = []
@@ -108,7 +110,10 @@ def default_branch_check(github_repo: Repository, fix=False):
                     new_default_branch_name = options[answer]
                     confirmation_question = 'Change the default branch of "{}" from "{}" to "{}"?'.format(
                         github_repo.full_name, repo.default_branch.name, new_default_branch_name)
-                    apply_fixes = input_ask_question_yn(confirmation_question, default=False)
+                    if noconfirm:
+                        apply_fixes = True
+                    else:
+                        apply_fixes = input_ask_question_yn(confirmation_question, default=False)
                 if apply_fixes:
                     print('Changing default branch to {} ...'.format(new_default_branch_name))
                     github_repo.edit(default_branch=new_default_branch_name)
