@@ -37,6 +37,9 @@ def main():
         repos_to_check = owner_user.get_repos()
 
     for repo_to_check in repos_to_check:
+        if repo_to_check.archived:
+            print("skip archived repo %s" % repo_to_check.name)
+            continue
         default_branch_check(repo_to_check, fix=args.fix)
 
 
