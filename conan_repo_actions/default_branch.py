@@ -103,7 +103,8 @@ def default_branch_check(github_repo: Repository, fix=False, noconfirm=False):
                 print('Only one branch available -> do nothing')
             else:
                 options = ['- do nothing -', ] + list(b.name for b in default_branch_suggestions)
-                answer = input_ask_question_options('Change default branch to?', options, default=0)
+                answer = input_ask_question_options('Change default of "{}" branch to?'.
+                                                    format(github_repo.full_name), options, default=0)
                 apply_fixes = answer != 0
                 new_default_branch_name = options[answer]
                 if apply_fixes:
