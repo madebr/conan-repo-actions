@@ -72,6 +72,8 @@ EDITOR_ALTERNATIVES = [
 def _editor_search() -> typing.Optional[str]:
     editor = os.environ.get('EDITOR', None)
     for editor in itertools.chain((editor, ), EDITOR_ALTERNATIVES):
+        if editor is None:
+            continue
         path = shutil.which(editor)
         if path is not None:
             return path
@@ -90,6 +92,11 @@ def editor_interactive(initial_message: typing.Optional[str]=None) -> str:
         subprocess.check_call([editor, f.name])
         f.seek(0)
         return f.read().decode()
+
+
+def editor_interactive_remove_comments(initial_message: typing.Optional[str]=None) -> str:
+    text = editor_interactive(initial_message)
+    return '\n'.join(line for line in text.splitlines() if (line and not line.startswith('#')))
 
 
 @contextlib.contextmanager
@@ -123,9 +130,14 @@ def chargv(new_argv: typing.List[str]):
 class Configuration(object):
     __CWD = Path()
 
-    def __init__(self, login_password=None, git_wd=None):
+    def __init__(self,
+                 github_token: typing.Optional[str]=None,
+                 travisci_com_token: typing.Optional[str]=None,
+                 git_wd: typing.Optional[Path]=None,
+                 ):
         c = self.load_config()
-        self._login_password = login_password or self._get_github_login_data(c)
+        self._github_token = github_token or self._get_github_login_data(c)
+        self._travisci_com_token = travisci_com_token or self._get_travisci_login_data(c)
         self._git_wd = git_wd or self._get_git_working_directories(c)
 
     @classmethod
@@ -158,38 +170,51 @@ class Configuration(object):
         return c
 
     @property
-    def github_login(self) -> typing.Tuple[typing.Optional[str], typing.Optional[str]]:
-        return self._login_password
+    def github_token(self) -> typing.Optional[str]:
+        return self._github_token
 
     def get_github(self) -> github.Github:
-        l, p = self.github_login
-        return github.Github(l, p)
+        t = self.github_token
+        return github.Github(t)
 
     @classmethod
     def _get_github_login_data(cls, c) -> typing.Tuple[typing.Optional[str], typing.Optional[str]]:
-        def _from_env() -> typing.Optional[typing.Tuple[str, typing.Optional[str]]]:
-            login = os.environ.get('CONAN_REPO_ACTIONS_GITHUB_LOGIN')
+        def _from_env() -> typing.Optional[str]:
+            login = os.environ.get('CONAN_REPO_ACTIONS_GITHUB_LOGIN', '').strip()
             if not login:
                 return None
-            login_password = tuple(d.strip() for d in login.split(':', 1))
-            try:
-                login, password = login_password
-                return login, password
-            except ValueError:
-                return login_password[0], None
+            return login
 
-        def _from_config() -> typing.Optional[typing.Tuple[str, typing.Optional[str]]]:
+        def _from_config() -> typing.Optional[str]:
             try:
-                token = c['github']['token']
-                return token, None,
+                return c['github.com']['token']
             except KeyError:
                 pass
-            try:
-                login = str(c['github']['login'])
-                password = str(c['github']['password'])
-                return login, password,
-            except KeyError:
+        data = _from_env()
+        if data is not None:
+            return data
+        data = _from_config()
+        if data is not None:
+            return data
+        return None, None
+
+    @property
+    def travisci_com_token(self) -> typing.Optional[str]:
+        return self._travisci_com_token
+
+    @classmethod
+    def _get_travisci_login_data(cls, c) -> typing.Tuple[typing.Optional[str], typing.Optional[str]]:
+        def _from_env() -> typing.Optional[str]:
+            login = os.environ.get('CONAN_REPO_ACTIONS_TRAVIS_LOGIN', '').strip()
+            if not login:
                 return None
+            return login
+
+        def _from_config() -> typing.Optional[str]:
+            try:
+                return c['travis-ci.com']['token']
+            except KeyError:
+                pass
         data = _from_env()
         if data is not None:
             return data

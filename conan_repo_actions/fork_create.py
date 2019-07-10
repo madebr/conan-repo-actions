@@ -100,7 +100,6 @@ class ForkCreateAction(ActionBase):
         self._fork_prefix = fork_prefix
 
     def run_check(self):
-
         for repo_fork in self._repo_from.get_forks():
             if repo_fork.owner.id == self._user_to.id:
                 print('Repo "{}" already forked to "{}".'.format(self._repo_from.full_name, repo_fork.full_name),
@@ -122,7 +121,6 @@ class ForkCreateAction(ActionBase):
             raise ActionInterrupted()
         self._repo_to = self._user_to.create_fork(self._repo_from)
         self._repo_to.edit(name=self._repo_to_name)
-        self._repo_to.edit()
         if self._fork_tag:
             topics_from = self._repo_from.get_topics()
             self._repo_to.replace_topics([self._fork_tag] + topics_from)

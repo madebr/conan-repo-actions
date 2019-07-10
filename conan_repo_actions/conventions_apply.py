@@ -12,7 +12,7 @@ from conan_readme_generator.main import run as conan_readme_generator_run
 from conan_repo_actions import NAME
 from conan_repo_actions.base import ActionBase, ActionInterrupted
 from conan_repo_actions.default_branch import WhichBranch
-from conan_repo_actions.util import Configuration, chargv, chdir, GithubUser
+from conan_repo_actions.util import Configuration, chargv, chdir, GithubUser, input_ask_question_yn
 from conan_repo_actions.fork_create import fork_create, ForkCreateAction
 from conan_repo_actions.default_branch import ConanRepo
 from pathlib import Path
@@ -25,28 +25,28 @@ def main():
     parser.add_argument('--owner_login', type=str, required=True, help='owner of the repo to clone')
     parser.add_argument('--keep_clone', action='store_true', help='do not remove already checked out repos')
     parser.add_argument('--git_wd', type=Path, default=None, help='path where to clone the repos to')
-    parser.add_argument('--channel_suffix', type=str, default=generate_default_channel_suffix(),
+    parser.add_argument('--interactive', action='store_true', help='interactive')
+    parser.add_argument('--channel_suffix', default=generate_default_channel_suffix(),
                         help='suffix to append to the channel')
     argparse_add_which_branch_option(parser)
-    parser.add_argument('repo_name', type=str, help='name of the repo')
+    argparse_add_what_conventions(parser)
+    parser.add_argument('repo_name', type=str, help='name of the repo+branch. Format: REPO[:BRANCH]')
 
     args = parser.parse_args()
 
     c = Configuration()
     g = c.get_github()
 
-    from_user = g.get_user(args.owner_login)
-    to_user = g.get_user()
+    user_from = g.get_user(args.owner_login)
+    user_to = g.get_user()
 
-    which_branch = argparse_calculate_branch(args.repo_name, args.branch_dest, from_user)
-    if which_branch is None:
-        print('No conan branch detected')
-        return
+    repobranch_from = calculate_repo_branch(user=user_from, repo_branch_name=args.repo_name)
 
-    push_data = apply_scripts_and_push2(repo_name=args.repo_name, branch_from=which_branch,
-                                        user_from=from_user, user_to=to_user,
+    push_data = apply_scripts_and_push2(repobranch_from=repobranch_from,
+                                        user_to=user_to,
                                         git_wd=c.git_wd, channel_suffix=args.channel_suffix,
-                                        keep_clone=args.keep_clone)
+                                        run_conventions=args.apply_conventions, run_readme=args.apply_readme,
+                                        keep_clone=args.keep_clone, interactive=args.interactive)
 
     if push_data is not None:
         print('Pushed changes to branch "{}" of "{}"'.format(push_data.branch_to, push_data.repo_to.full_name))
@@ -54,38 +54,57 @@ def main():
         print('Scripts did not change anything')
 
 
-def argparse_add_which_branch_option(parser):
-    branch_group = parser.add_mutually_exclusive_group()
+def argparse_add_what_conventions(parser: argparse.ArgumentParser):
+    group = parser.add_argument_group()
+    group.add_argument('--do-not-apply-readme', dest='apply_readme', action='store_false',
+                       help='do not run readme generation script')
+    group.add_argument('--do-not-apply-conventions', dest='apply_conventions', action='store_false',
+                       help='do not run conventions script')
+
+
+def argparse_add_which_branch_option(parser: argparse.ArgumentParser):
+    group = parser.add_argument_group('Branch to use when none is specified')
+    branch_group = group.add_mutually_exclusive_group()
     branch_group.add_argument('--default_branch', dest='branch_dest', action='store_const',
                               const=WhichBranch.DEFAULT, help='use default branch')
     branch_group.add_argument('--latest', dest='branch_dest', action='store_const',
-                              const=WhichBranch.LATEST, help='use branch with the highest version')
+                              const=WhichBranch.LATEST, help='use branch with highest version')
     branch_group.add_argument('--latest_stable', dest='branch_dest', action='store_const',
-                              const=WhichBranch.LATEST_STABLE, help='use branch of stable channel of highest version')
+                              const=WhichBranch.LATEST_STABLE, help='use branch of stable channel with highest version')
     branch_group.add_argument('--latest_testing', dest='branch_dest', action='store_const',
-                              const=WhichBranch.LATEST_TESTING, help='use branch of testing channel of highest version')
-    branch_group.add_argument('--branch', dest='branch_dest', help='use the most recent branch')
+                              const=WhichBranch.LATEST_TESTING,
+                              help='use branch of testing channel with highest version')
+    branch_group.add_argument('--branch', dest='branch_dest', help='use specified branch')
     parser.set_defaults(branch_dest=WhichBranch.DEFAULT)
 
 
-def argparse_calculate_branch(repo_name: str, branch_dest: typing.Union[WhichBranch, str], from_user: GithubUser) -> typing.Optional[str]:
-    from_repo = from_user.get_repo(repo_name)
+def calculate_repo_branch(user: GithubUser, repo_branch_name: str) -> 'GithubRepoBranch':
+    list_repo_branch = repo_branch_name.split(':', 1)
+    if len(list_repo_branch) == 1:
+        repo_str, branch = list_repo_branch[0], None
+    else:
+        repo_str, branch = list_repo_branch[0], list_repo_branch[1]
+    repo = user.get_repo(repo_str)
+    return GithubRepoBranch(repo, branch)
+
+
+def calculate_branch(repo: Repository, branch_dest: typing.Union[WhichBranch, str]) -> typing.Optional[str]:
     if branch_dest == WhichBranch.DEFAULT:
-        return from_repo.default_branch
+        return repo.default_branch
     elif branch_dest == WhichBranch.LATEST:
-        conan_repo = ConanRepo.from_repo(from_repo)
+        conan_repo = ConanRepo.from_repo(repo)
         most_recent_version = conan_repo.most_recent_version()
         if most_recent_version is None:
             return
         return next(conan_repo.get_branches_by_version(most_recent_version)).name
     elif branch_dest == WhichBranch.LATEST_STABLE:
-        conan_repo = ConanRepo.from_repo(from_repo)
+        conan_repo = ConanRepo.from_repo(repo)
         most_recent_branch = conan_repo.most_recent_branch_by_channel('stable')
         if most_recent_branch is None:
             return
         return most_recent_branch.name
     elif branch_dest == WhichBranch.LATEST_TESTING:
-        conan_repo = ConanRepo.from_repo(from_repo)
+        conan_repo = ConanRepo.from_repo(repo)
         most_recent_branch = conan_repo.most_recent_branch_by_channel('testing')
         if most_recent_branch is None:
             return
@@ -103,6 +122,7 @@ ConventionsApplyResult = namedtuple('ConventionsApplyresult', ('repo_from', 'bra
 
 def apply_scripts_and_push(repo_name: str, from_branch: str,
                            from_user: GithubUser, to_user: AuthenticatedUser, git_wd: Path, channel_suffix: str,
+                           run_conventions: bool=True, run_readme: bool=True,
                            keep_clone: bool=False) -> typing.Optional[ConventionsApplyResult]:
 
     from_repo, to_repo = fork_create(repo_name, from_user, to_user)
@@ -124,19 +144,21 @@ def apply_scripts_and_push(repo_name: str, from_branch: str,
             repo.index.commit(message=message)
             updated = True
 
-    print('Running bincrafters-conventions...')
-    with chdir(git_repo_wd):
-        cmd = BincraftersConventionsCommand()
-        cmd.run(['--local', ])
+    if run_conventions:
+        print('Running bincrafters-conventions...')
+        with chdir(git_repo_wd):
+            cmd = BincraftersConventionsCommand()
+            cmd.run(['--local', ])
 
-    commit_changes(repo, 'Run bincrafters-conventions\n\ncommit by {}'.format(NAME))
+        commit_changes(repo, 'Run bincrafters-conventions\n\ncommit by {}'.format(NAME))
 
-    print('Running conan-readme-generator...')
-    with chdir(git_repo_wd):
-        with chargv(['']):
-            conan_readme_generator_run()
+    if run_readme:
+        print('Running conan-readme-generator...')
+        with chdir(git_repo_wd):
+            with chargv(['']):
+                conan_readme_generator_run()
 
-    commit_changes(repo, 'Run conan-readme-generator\n\ncommit by {}'.format(NAME))
+        commit_changes(repo, 'Run conan-readme-generator\n\ncommit by {}'.format(NAME))
 
     def remote_branch_from_local(local):
         try:
@@ -153,30 +175,37 @@ def apply_scripts_and_push(repo_name: str, from_branch: str,
         return None
 
 
-def apply_scripts_and_push2(repo_name: str, branch_from: str,
-                            user_from: GithubUser, user_to: AuthenticatedUser, git_wd: Path, channel_suffix: str,
-                            keep_clone: bool=False) -> typing.Optional[ConventionsApplyResult]:
-    repo_from = user_from.get_repo(repo_name)
-    apply_action = ConventionsApplyAction(repo_from=repo_from, branch_from=branch_from, user_to=user_to,
-                                          wd=git_wd, channel_suffix=channel_suffix, keep_clone=keep_clone)
+class GithubRepoBranch(object):
+    def __init__(self, repo: typing.Optional[Repository]=None, branch: typing.Optional[str]=None):
+        self.repo = repo
+        self.branch = branch
+
+
+def apply_scripts_and_push2(repobranch_from: GithubRepoBranch, user_to: AuthenticatedUser,
+                            git_wd: Path, channel_suffix: str,
+                            run_conventions: bool=True, run_readme: bool=True,
+                            keep_clone: bool=False, interactive: bool=False) -> typing.Optional[ConventionsApplyResult]:
+    apply_action = ConventionsApplyAction(repobranch_from=repobranch_from, user_to=user_to,
+                                          wd=git_wd, channel_suffix=channel_suffix,
+                                          run_conventions=run_conventions, run_readme=run_readme,
+                                          keep_clone=keep_clone, interactive=interactive)
 
     apply_action.check()
     print(apply_action.description())
     apply_action.action()
 
     if apply_action.work_done:
-        return ConventionsApplyResult(repo_from=repo_from, branch_from=branch_from,
-                                      repo_to=apply_action.repo_to, branch_to=apply_action.branch_to)
+        return ConventionsApplyResult(repo_from=repobranch_from.repo, branch_from=repobranch_from.branch,
+                                      repo_to=apply_action.repo_to, branch_to=apply_action.branch_to,)
 
 
 class ConventionsApplyAction(ActionBase):
-    def __init__(self, repo_from: Repository, branch_from: str, user_to: AuthenticatedUser, wd: Path,
-                 channel_suffix: str, branch: typing.Union[str, WhichBranch]=WhichBranch.DEFAULT,
-                 keep_clone: bool=False, interactive: bool=False):
+    def __init__(self, repobranch_from: GithubRepoBranch, user_to: AuthenticatedUser,
+                 wd: Path, channel_suffix: str=None, run_conventions: bool=True, run_readme: bool=True,
+                 which_branch: typing.Union[WhichBranch, str]=WhichBranch.DEFAULT, keep_clone: bool=False,  interactive: bool=False):
         super().__init__()
 
-        self._repo_from = repo_from
-        self._branch_from = branch_from
+        self._repo_branch_from = repobranch_from
 
         self._repo_to = None
         self._branch_to = None
@@ -184,26 +213,36 @@ class ConventionsApplyAction(ActionBase):
         self._user_to = user_to
 
         self._wd = wd
-        self._channel_suffix = channel_suffix
+        self._channel_suffix = channel_suffix if channel_suffix is None else generate_default_channel_suffix()
 
-        self._branch = branch
+        self._which_branch = which_branch
 
         self._keep_clone = keep_clone
-        self._interactive=interactive
+        self._interactive = interactive
 
         self._work_done = None
 
+        self._run_conventions = run_conventions
+        self._run_readme = run_readme
+
     def run_check(self):
-        pass
+        if self._repo_branch_from.repo is None:
+            raise ActionInterrupted()
+        if self._repo_branch_from.branch is None:
+            self._repo_branch_from.branch = calculate_branch(self._repo_branch_from.repo, self._which_branch)
+        if self._repo_branch_from.branch is None:
+            raise ActionInterrupted('Unknown branch')
+        if not any((self._run_conventions, self._run_readme, )):
+            raise ActionInterrupted('Nothing to do...')
 
     def run_action(self):
-        fork_action = ForkCreateAction(repo_from=self._repo_from, user_to=self._user_to, interactive=self._interactive)
+        fork_action = ForkCreateAction(repo_from=self._repo_branch_from.repo, user_to=self._user_to, interactive=self._interactive)
         fork_action.action()
 
         self._repo_to = fork_action.repo_to
 
-        clone_action = RepoCloneAction(repo_from=self._repo_from, repo_to=self._repo_to,
-                                       wd=self._wd, keep_clone=self._keep_clone, branch=self._branch)
+        clone_action = RepoCloneAction(repo_from=self._repo_branch_from.repo, repo_to=self._repo_to,
+                                       wd=self._wd, keep_clone=self._keep_clone, branch=self._repo_branch_from.branch)
         clone_action.action()
 
         repo = git.Repo(clone_action.repo_wd)
@@ -217,19 +256,27 @@ class ConventionsApplyAction(ActionBase):
                 repo.index.commit(message=message)
                 updated = True
 
-        print('Running bincrafters-conventions...')
-        with chdir(clone_action.repo_wd):
-            cmd = BincraftersConventionsCommand()
-            cmd.run(['--local', ])
+        if self._run_conventions:
+            if self._interactive:
+                if not input_ask_question_yn('Run bincrafters-conventions script?', default=True):
+                    raise ActionInterrupted()
+            print('Running bincrafters-conventions...')
+            with chdir(clone_action.repo_wd):
+                cmd = BincraftersConventionsCommand()
+                cmd.run(['--local', ])
 
-        commit_changes(repo, 'Run bincrafters-conventions\n\ncommit by {}'.format(NAME))
+            commit_changes(repo, 'Run bincrafters-conventions\n\ncommit by {}'.format(NAME))
 
-        print('Running conan-readme-generator...')
-        with chdir(clone_action.repo_wd):
-            with chargv(['']):
-                conan_readme_generator_run()
+        if self._run_readme:
+            if self._interactive:
+                if not input_ask_question_yn('Run conan-readme-generator script?', default=True):
+                    raise ActionInterrupted()
+            print('Running conan-readme-generator...')
+            with chdir(clone_action.repo_wd):
+                with chargv(['']):
+                    conan_readme_generator_run()
 
-        commit_changes(repo, 'Run conan-readme-generator\n\ncommit by {}'.format(NAME))
+            commit_changes(repo, 'Run conan-readme-generator\n\ncommit by {}'.format(NAME))
 
         def remote_branch_from_local(local):
             try:
@@ -241,17 +288,34 @@ class ConventionsApplyAction(ActionBase):
         self._work_done = False
         if updated:
             branch_to = remote_branch_from_local(repo.active_branch.name)
+            if self._interactive:
+                from .util import editor_interactive_remove_comments
+                branch_to = editor_interactive_remove_comments(
+                    '{branch}\n\n# Enter the name of the remote branch (repo={repo})'.format(
+                        branch=branch_to, repo=self._repo_to.full_name)).strip()
+                if not branch_to or not input_ask_question_yn(
+                        'Push changes to remote branch (user={user}) "{branch}"?'.format(
+                            user=self._user_to.login, branch=branch_to), default=True):
+                    raise ActionInterrupted()
             repo.remote(clone_action.repo_to_name).push('{}:{}'.format(repo.active_branch.name, branch_to))
             self._branch_to = branch_to
             self._work_done = True
 
-    def description(self):
+    def run_description(self) -> str:
         return 'Fork, clone and run conventions on "{repo_from_name}"'.format(
             repo_from_name=self._repo_from.full_name,
         )
 
     @property
-    def repo_to(self) -> Repository:
+    def repo_from(self) -> Repository:
+        return self._repo_branch_from.repo
+
+    @property
+    def branch_from(self) -> typing.Optional[str]:
+        return self._repo_branch_from.branch
+
+    @property
+    def repo_to(self) -> typing.Optional[Repository]:
         return self._repo_to
 
     @property
@@ -281,7 +345,7 @@ class RepoCloneAction(ActionBase):
         if isinstance(branch, str):
             self._branch = branch
         else:
-            self._branch = ConanRepo.from_repo(self._repo_from).select_branch(branch)
+            self._branch = ConanRepo.from_repo(self._repo_from).select_branch(branch).name
 
     def run_check(self):
         assert self._wd.is_dir()
@@ -298,7 +362,7 @@ class RepoCloneAction(ActionBase):
             r.remote(self._name_to).update()
 
         r = git.Repo(self._repo_wd)
-        r.git.checkout('{}/{}'.format(self._name_from, self._branch.name), B=self._branch.name, force=True, track=True)
+        r.git.checkout('{}/{}'.format(self._name_from, self._branch), B=self._branch, force=True, track=True)
 
     def run_description(self):
         return 'Clone remote repository "{name_remote}" ({url_remote}) to local directory "{path_local}". ' \

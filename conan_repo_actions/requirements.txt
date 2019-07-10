@@ -1,4 +1,7 @@
 gitpython>=2.1.11
 pygithub>=1.43.7
-bincrafters-conventions>=0.7.6
 packaging>=19.0
+requests>=2.22.0
+bincrafters-conventions>=0.7.6
+PyYAML>=5.1.1
+#git+https://github.com/bincrafters/conan-readme-generator.git#egg=conan-readme-generator

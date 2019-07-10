@@ -88,6 +88,10 @@ class DefaultBranchAction(ActionBase):
         return ()
 
     def _repo_check_default_branch(self, github_repo: Repository):
+        if github_repo.archived:
+            print("{}: archived".format(github_repo.full_name))
+            return
+
         repo = ConanRepo.from_repo(github_repo)
 
         messages = []
@@ -125,15 +129,18 @@ class DefaultBranchAction(ActionBase):
                 most_recent_stable_version_overall = repo.version_most_recent_filter(
                     lambda b: not b.version.is_prerelease)
 
-                most_recent_repo_testing = repo.most_recent_repo_by_channel('testing')
-                most_recent_repo_overall = repo.most_recent_repo()
+                most_recent_branch_testing = repo.most_recent_branch_by_channel('testing')  # most_recent_repo_by_channel('testing')
+                most_recent_version = repo.most_recent_version()
 
                 if repo.default_branch.version != most_recent_stable_version_overall:
                     messages.append('default branch is not on most recent (non-prerelease) version')
                     change_default_branch = True
 
-                if most_recent_repo_testing.version != most_recent_repo_overall.version:
-                    messages.append('most recent version has no testing channel branch')
+                if not most_recent_branch_testing:
+                    messages.append('no testing branch present')
+                else:
+                    if most_recent_branch_testing.version != most_recent_version:
+                        messages.append('most recent version has no testing channel branch')
 
         if change_default_branch:
             messages.append('suggestions={}'.format(list(b.name for b in default_branch_suggestions)))

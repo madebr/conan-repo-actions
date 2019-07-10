@@ -115,6 +115,10 @@ setup(
             'conan-repo-actions-default_branch=conan_repo_actions.default_branch:main',
             'conan-repo-actions-conventions_apply=conan_repo_actions.conventions_apply:main',
             'conan-repo-actions-conventions_apply_create_pr=conan_repo_actions.conventions_apply_create_pr:main',
+            'conan-repo-actions-travis_cancel_all=conan_repo_actions.travis_cancel_all:main',
+            'conan-repo-actions-fetch_dependencies=conan_repo_actions.fetch_dependencies:main',
+            'conan-repo-actions-build_dependencies=conan_repo_actions.build_dependencies:main',
+            'conan-repo-actions-parse_dependencies=conan_repo_actions.parse_dependencies:main',
         ],
     },
 )
